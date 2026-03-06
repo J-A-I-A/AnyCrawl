@@ -8,6 +8,7 @@ import { CrawlLimitReachedError } from "../errors/index.js";
 import { getOrCreateBandwidthTracker } from "./BandwidthTracker.js";
 import { CloudflareChallengeHandler } from "../challenges/cloudflare/CloudflareChallengeHandler.js";
 import { ChallengeOrchestrator } from "../challenges/ChallengeOrchestrator.js";
+import { ProxyCacheManager } from "../managers/ProxyCacheManager.js";
 
 export enum ConfigurableEngineType {
     CHEERIO = 'cheerio',
@@ -516,9 +517,8 @@ export class EngineConfigurator {
         options.retryOnBlocked = false;
 
         options.maxRequestRetries = 3;
-        options.maxSessionRotations = 3; // Enable session rotation
 
-        // Configure session pool with specific settings
+        // Configure session pool
         if (options.useSessionPool !== false) {
             const configuredBlockedStatusCodes = Array.isArray(options.sessionPoolOptions?.blockedStatusCodes)
                 ? options.sessionPoolOptions.blockedStatusCodes
@@ -545,6 +545,32 @@ export class EngineConfigurator {
             return errorName === "TimeoutError";
         };
 
+        // Proxy-related errors that might be temporary
+        const temporaryProxyErrors = [
+            'ERR_PROXY_CONNECTION_FAILED',
+            'ERR_TUNNEL_CONNECTION_FAILED',
+            'ERR_PROXY_AUTH_FAILED',
+            'ERR_NEED_TO_RETRY',
+            'ERR_SOCKS_CONNECTION_FAILED'
+        ];
+
+        // Helper function to map error to FailureReason
+        const mapToFailureReason = (msg: string, err?: Error): 'cloudflare_challenge' | 'http_error' | 'timeout' | 'blocked' | 'proxy_error' => {
+            if (msg.includes('cloudflare') || msg.includes('CF_') || msg.includes('ANYCRAWL_PROXY_ACTION_UPGRADE_TO_STEALTH')) {
+                return 'cloudflare_challenge';
+            }
+            if (msg.includes('403') || msg.includes('blocked')) {
+                return 'blocked';
+            }
+            if (temporaryProxyErrors.some(err => msg.includes(err)) || msg.includes('proxy')) {
+                return 'proxy_error';
+            }
+            if ((err && isTimeoutLikeError(err)) || msg.toLowerCase().includes('timeout')) {
+                return 'timeout';
+            }
+            return 'http_error';
+        };
+
         // Configure how errors are evaluated
         options.errorHandler = async (context: any, error: Error) => {
             log.debug(`Error handler triggered: ${error.message}`);
@@ -557,6 +583,30 @@ export class EngineConfigurator {
 
             // Check error type and determine retry strategy
             const errorMessage = error.message || '';
+            const requestUrl = context?.request?.url || 'unknown';
+
+            // Record failure to ProxyCacheManager for ALL proxy modes (base, stealth, auto)
+            const proxyMode = context?.request?.userData?.options?.proxy;
+            if (proxyMode === 'auto' || proxyMode === 'base' || proxyMode === 'stealth') {
+                const proxyCache = ProxyCacheManager.getInstance();
+                const domain = proxyCache.extractDomain(requestUrl);
+                if (domain) {
+                    const reason = mapToFailureReason(errorMessage, error);
+
+                    // Get the actual proxy URL used for this request
+                    const proxyUrl = context?.proxyInfo?.url || 'unknown';
+
+                    // Record both domain-level and proxy-level failures
+                    proxyCache.recordDomainFailure(domain, proxyMode, reason).catch(() => {
+                        // Ignore cache recording errors
+                    });
+                    if (proxyUrl !== 'unknown') {
+                        proxyCache.recordProxyFailure(domain, proxyUrl, reason).catch(() => {
+                            // Ignore cache recording errors
+                        });
+                    }
+                }
+            }
 
             if (
                 errorMessage.includes("ANYCRAWL_PROXY_ACTION_UPGRADE_TO_STEALTH")
@@ -597,15 +647,6 @@ export class EngineConfigurator {
                 log.info(`Timeout-like error detected, disabling retry for ${context?.request?.url || "unknown url"}`);
                 return false;
             }
-
-            // Proxy-related errors that might be temporary
-            const temporaryProxyErrors = [
-                'ERR_PROXY_CONNECTION_FAILED',
-                'ERR_TUNNEL_CONNECTION_FAILED',
-                'ERR_PROXY_AUTH_FAILED',
-                'ERR_NEED_TO_RETRY',
-                'ERR_SOCKS_CONNECTION_FAILED'
-            ];
 
             if (temporaryProxyErrors.some(err => errorMessage.includes(err))) {
                 log.debug('Temporary proxy error detected, allowing retry with session rotation');

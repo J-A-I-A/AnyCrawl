@@ -25,6 +25,7 @@ import { minimatch } from "minimatch";
 import { BandwidthManager } from "../managers/Bandwidth.js";
 import { getResolvedProxyModeName } from "../managers/Proxy.js";
 import { ensureChallengeState, consumeProxyAction } from "../challenges/ChallengeContext.js";
+import { ProxyCacheManager } from "../managers/ProxyCacheManager.js";
 
 // Template system imports - directly use @anycrawl/template-client
 
@@ -788,6 +789,8 @@ export abstract class BaseEngine {
         };
 
         const requestHandler = async (context: CrawlingContext) => {
+            // Proxy cache (domain mode + working proxy) is applied during proxy selection
+            // in Proxy.newUrlFunction before navigation starts.
             // Note: Progress checking is now handled by limitFilterHook in preNavigationHooks
             // This eliminates duplicate logic and ensures consistent behavior
 
@@ -1246,8 +1249,26 @@ export abstract class BaseEngine {
                     } catch (cacheError) {
                         log.warning(`[CACHE] Failed to save cache for ${context.request.url}: ${cacheError}`);
                     }
-                } else {
-                    log.info(`[${context.request.userData.queueName}] [${context.request.userData.jobId}] Skipping scrape for ${context.request.url} (not in scrape_paths)`);
+                }
+
+                // Record success to ProxyCacheManager for ALL proxy modes (auto/base/stealth)
+                // This caches the working proxy for future requests
+                try {
+                    const options = context.request.userData.options || {};
+                    const proxyMode = options.proxy;
+                    const proxyInfo = (context as any).proxyInfo;
+                    if (proxyMode && proxyInfo?.url) {
+                        const proxyCache = ProxyCacheManager.getInstance();
+                        const domain = proxyCache.extractDomain(context.request.url);
+                        if (domain) {
+                            log.debug(`[ProxyCache] Recording success: domain=${domain}, proxy=${proxyInfo.url}, mode=${proxyMode}`);
+                            proxyCache.recordDomainSuccess(domain, proxyInfo.url, proxyMode).catch(() => {
+                                // Ignore cache recording errors
+                            });
+                        }
+                    }
+                } catch (error) {
+                    // Ignore errors when recording success
                 }
 
                 // Handle crawl logic if this is a crawl job (always run to discover links)

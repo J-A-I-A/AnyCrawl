@@ -72,6 +72,12 @@ export class CacheManager {
                 return null;
             }
 
+            // Guard against historical low-quality cache entries (e.g. title-only markdown payloads)
+            if (!shouldCache({}, content)) {
+                log.warning(`[CACHE] Cache entry ignored due to empty/invalid payload for ${url}`);
+                return null;
+            }
+
             log.info(`[CACHE] Cache hit for ${url} (cached at ${cached.scrapedAt.toISOString()})`);
 
             return {

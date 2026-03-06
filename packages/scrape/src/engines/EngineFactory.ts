@@ -13,8 +13,7 @@ export interface IEngineFactory {
 const defaultOptions: EngineOptions = {
     requestHandlerTimeoutSecs: process.env.ANYCRAWL_REQUEST_HANDLER_TIMEOUT_SECS ? parseInt(process.env.ANYCRAWL_REQUEST_HANDLER_TIMEOUT_SECS) : 600,
     keepAlive: process.env.ANYCRAWL_KEEP_ALIVE === "false" ? false : true,
-    useSessionPool: true,
-    persistCookiesPerSession: false
+    useSessionPool: true,  // Enable session pool for cookie persistence
 };
 
 if (process.env.ANYCRAWL_MIN_CONCURRENCY) {
