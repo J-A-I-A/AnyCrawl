@@ -5,6 +5,61 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0-beta.23] - 2026-03-19
+
+### Added
+
+- Log capturing in template execution sandbox with `logs` property on `TemplateExecutionResult`, max entry limit, and size constraints
+- Template logs included in thrown errors for improved debugging visibility
+
+### Changed
+
+- Updated js-sdk publish workflow and package metadata
+- Removed unused dependencies from pnpm-lock.yaml
+
+## [1.0.0-beta.21] - 2026-03-17
+
+### Added
+
+- Enhanced scraping options with additional configuration parameters
+- Scheduled tasks support in scraping workflows
+
+### Fixed
+
+- JS SDK version alignment and proxy configuration loading from both file and HTTP URL sources
+
+## [1.0.0-beta.20] - 2026-03-15
+
+### Added
+
+- Cloudflare challenge orchestration with 2captcha turnstile solver (CDP-based)
+- Persistent proxy cache manager for improved proxy reuse and performance
+- PostgreSQL Docker Compose stack for simplified self-hosted deployment
+- OCR-enhanced markdown extraction with configurable vision provider (OpenAI, OpenRouter, compatible providers)
+
+### Changed
+
+- Hardened page cache validation logic
+- Aligned general docs with current API behavior
+
+### Fixed
+
+- Markdown OCR concurrency now configurable via environment variable
+
+## [1.0.0-beta.17] - 2026-03-01
+
+### Added
+
+- OCR-enhanced markdown extraction with configurable vision provider for image-to-text capabilities
+- Idempotent billing ledger with unified billing, scheduled-task, and webhook flows
+
+## [1.0.0-beta.16] - 2026-02-20
+
+### Fixed
+
+- Restrict credit checks to billing endpoints only
+- Updated baseline-browser-mapping for improved engine selection
+
 ## [1.0.0-beta.15] - 2026-02-08
 
 ### Fixed

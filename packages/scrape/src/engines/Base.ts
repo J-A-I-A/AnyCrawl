@@ -1143,6 +1143,9 @@ export abstract class BaseEngine {
                                 ...templateResult.data.result
                             }
                         }
+                        if (templateResult.logs?.length) {
+                            data._templateLogs = templateResult.logs;
+                        }
 
                         log.info(`[${context.request.userData.queueName}] [${context.request.userData.jobId}] Concurrent execution completed successfully`);
                     } finally {

@@ -188,6 +188,7 @@ export interface TemplateExecutionResult {
     success: boolean;
     data?: any;
     error?: string;
+    logs?: Array<{ level: string; ts: number; message: string }>;
     executionTime: number;
     creditsCharged: number;
     metadata?: Record<string, any>;

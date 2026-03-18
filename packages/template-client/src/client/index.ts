@@ -134,6 +134,7 @@ export class TemplateClient {
 
             // 4. Execute template
             let result;
+            let logs: any[] = [];
 
             // If custom handler is enabled, execute it and return only template enhancements
             if (template.customHandlers?.requestHandler?.enabled) {
@@ -150,7 +151,7 @@ export class TemplateClient {
                     sandboxContext
                 );
 
-                // Return only the custom handler result (template enhancements)
+                logs = customResult?.logs || [];
                 result = customResult || {};
             } else {
                 // If no custom handler, return basic template info
@@ -170,6 +171,7 @@ export class TemplateClient {
             return {
                 success: true,
                 data: result,
+                logs,
                 executionTime,
                 creditsCharged: template.pricing.perCall,
             };
@@ -182,11 +184,17 @@ export class TemplateClient {
                 await this.recordExecution(template, context, executionTime, false, error as Error);
             }
 
+            // Logs are only available when the error originated inside the sandbox
+            // (SandboxError carries .logs). Errors from validation or other layers
+            // produce an empty array, which is correct since no handler code ran.
+            const errorLogs = (error as any)?.logs || [];
             const errorMessage = error instanceof Error ? error.message : String(error);
-            throw new TemplateExecutionError(
+            const execError = new TemplateExecutionError(
                 `Template execution failed: ${errorMessage}`,
                 error as Error
             );
+            (execError as any).logs = errorLogs;
+            throw execError;
         }
     }
 

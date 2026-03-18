@@ -776,7 +776,17 @@ const proxyConfiguration = new ProxyConfiguration({
                 ? userDataTier
                 : (typeof proxyTierRaw === 'number' && Number.isFinite(proxyTierRaw) ? proxyTierRaw : 0);
 
-        // First priority: explicit proxy from request userData (supports modes: auto, base, stealth, or custom URL)
+        // Check proxy.config.json for domain-specific rules
+        const ruleMatch = matchUrl ? findProxyForUrl(matchUrl) : null;
+
+        // On first attempt, prefer the config rule proxy (highest priority).
+        // On retries, fall through to merge with proxy mode proxies for rotation.
+        if (ruleMatch && retryCount === 0) {
+            log.info(`[PROXY] URL: ${requestUrl}${originalUrl && originalUrl !== requestUrl ? ` (original: ${originalUrl})` : ''} → Matched proxy config rule: ${ruleMatch}`);
+            return ruleMatch;
+        }
+
+        // Next: explicit proxy from request userData (supports modes: auto, base, stealth, or custom URL)
         if (options?.request?.userData?.options?.proxy) {
             const proxyValue = options.request.userData.options.proxy;
 
@@ -818,6 +828,20 @@ const proxyConfiguration = new ProxyConfiguration({
                     effectiveProxyTier = 1;
                 }
 
+                // Merge: config rule proxy + mode proxies for rotation on retries
+                if (ruleMatch && retryCount > 0) {
+                    const tiered = resolveProxyModeWithFallback(effectiveProxyMode);
+                    const modeProxies = tiered
+                        ? tiered.flat().filter((u): u is string => !!u && u !== ruleMatch)
+                        : [];
+                    const combined = [ruleMatch, ...modeProxies];
+                    const selectedProxy = combined[proxyModeRotationIndex++ % combined.length];
+                    if (selectedProxy) {
+                        log.info(`[PROXY] URL: ${requestUrl}${originalUrl && originalUrl !== requestUrl ? ` (original: ${originalUrl})` : ''} → Config rule + ${effectiveProxyMode} rotation (retry=${retryCount}, pool=${combined.length}): ${selectedProxy}`);
+                        return selectedProxy;
+                    }
+                }
+
                 const resolvedProxy = getProxyFromMode(effectiveProxyMode, effectiveProxyTier, matchUrl);
                 if (resolvedProxy) {
                     const tierCount = getProxyTierCount(effectiveProxyMode);
@@ -833,13 +857,22 @@ const proxyConfiguration = new ProxyConfiguration({
             }
         }
 
-        // Next: proxy rule matching should use original_url first if available
-        if (matchUrl) {
-            const matched = findProxyForUrl(matchUrl);
-            if (matched) {
-                log.info(`[PROXY] URL: ${requestUrl}${originalUrl && originalUrl !== requestUrl ? ` (original: ${originalUrl})` : ''} → Matched proxy rule: ${matched}`);
-                return matched;
+        // If config rule matched but no proxy mode set, merge with ANYCRAWL_PROXY_URL for rotation
+        if (ruleMatch && retryCount > 0) {
+            const envProxies = (process.env.ANYCRAWL_PROXY_URL?.split(',') || [])
+                .map(u => u.trim()).filter(u => u && u !== ruleMatch);
+            const combined = [ruleMatch, ...envProxies];
+            const selectedProxy = combined[proxyModeRotationIndex++ % combined.length];
+            if (selectedProxy) {
+                log.info(`[PROXY] URL: ${requestUrl}${originalUrl && originalUrl !== requestUrl ? ` (original: ${originalUrl})` : ''} → Config rule + env rotation (retry=${retryCount}, pool=${combined.length}): ${selectedProxy}`);
+                return selectedProxy;
             }
+        }
+
+        // If config rule matched but this is the only proxy available, use it
+        if (ruleMatch) {
+            log.info(`[PROXY] URL: ${requestUrl}${originalUrl && originalUrl !== requestUrl ? ` (original: ${originalUrl})` : ''} → Matched proxy config rule (no other proxies for rotation): ${ruleMatch}`);
+            return ruleMatch;
         }
 
         // Fallback to ANYCRAWL_PROXY_URL (handled by tieredProxyUrls)
